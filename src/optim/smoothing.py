@@ -83,9 +83,9 @@ def get_smooth_weights_sorted(losses, spectrum, smooth_coef, smoothing="l2", tol
         raise NotImplementedError
     return smooth_weights
 
-
-@jit
+@jit(nopython=True)
 def l2_centered_isotonic_regression(losses, spectrum):
+    # function implementation
     n = len(losses)
     means = [losses[0] + 1 / n - spectrum[0]]
     counts = [1]

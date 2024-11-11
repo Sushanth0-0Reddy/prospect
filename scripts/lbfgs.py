@@ -69,6 +69,7 @@ elif dataset == "amazon":
     n_class = 5
 elif dataset == "diabetes":
     loss = "binary_cross_entropy"
+    n_class = None
 
 model_cfg = {
     "objective": args.objective,

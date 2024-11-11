@@ -8,7 +8,8 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 # Download raw data.
-data_path = "../data/"
+data_path = "/home/hp/pai/code/prospect/data/"
+os.makedirs(os.path.join(data_path, "UCI"), exist_ok=True)
 url = "https://github.com/fairlearn/talks/raw/main/2021_scipy_tutorial/data/diabetic_data.csv"
 print(f"Downloading raw data from '{url}'...")
 urllib.request.urlretrieve(url, os.path.join(data_path, "UCI", "diabetic_data.csv"))

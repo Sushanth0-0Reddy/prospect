@@ -8,11 +8,11 @@ from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
 
 # Download raw data.
-data_path = "../data/"
+data_path = "/home/hp/pai/code/prospect/data/"
 url = "https://www.openml.org/data/download/22101666/ACSIncome_state_number.arff"
 print(f"Downloading raw data from '{url}'...")
 file_name = "ACSIncome_state_number.arff"
-dir_name = os.path.join(data_path, "OpenML/")
+dir_name = os.path.join(data_path, "OpenML")
 if not os.path.exists(dir_name):
     os.mkdir(dir_name)
 

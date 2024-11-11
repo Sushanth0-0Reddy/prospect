@@ -4,7 +4,7 @@ import torch.nn.functional as F
 import math
 import sys
 import os
-
+import gc
 sys.path.append(os.path.dirname(os.path.dirname(sys.path[0])))
 
 from src.optim.smoothing import get_smooth_weights, get_smooth_weights_sorted
@@ -122,6 +122,20 @@ class Objective:
             return self.get_batch_subgrad_autodiff(w, idx=idx, include_reg=include_reg)
         else:
             return self.get_batch_subgrad_oracle(w, idx=idx, include_reg=include_reg)
+
+    
+    def get_batch_subgrad_dp(self, w, idx=None, include_reg=True):
+
+        g,coeff = self.get_batch_subgrad_oracle_dp(w, idx=idx, include_reg=False)
+        
+        # Calculate the regularization term if requested
+        if self.l2_reg and include_reg:
+            reg_term = self.l2_reg * w.detach() / self.n
+        else:
+            reg_term = torch.zeros_like(w)
+        
+        return g, reg_term,coeff
+
     
     @torch.no_grad()
     def get_batch_subgrad_oracle(self, w, idx=None, include_reg=True):
@@ -163,7 +177,75 @@ class Objective:
         if self.l2_reg and include_reg:
             g += self.l2_reg * w.detach() / self.n
         return g
+        
+    def get_batch_subgrad_oracle_dp(self, w, idx=None, include_reg=True):
+        with torch.no_grad():
+        
+            if idx is not None:
+                X, y = self.X[idx], self.y[idx]
+                sigmas = self.weight_function(len(X))
+            else:
+                X, y = self.X, self.y
+                sigmas = self.sigmas
+            sorted_losses, perm = torch.sort(self.loss(w, X, y), stable=True)
+            # if self.penalty:
+            #     q = get_smooth_weights_sorted(
+            #         sorted_losses, sigmas, self.shift_cost, self.penalty
+            #     )
+            # else:
+            q = sigmas
 
+            l_g = self.grad_batch(w, X, y)
+            new_l_g = torch.empty_like(l_g)
+            for i,grad in enumerate(l_g):
+                grad_norm = torch.norm(grad)
+                c = 1
+                if grad_norm > c:
+                    # print("Clipped")
+                    grad = grad * (c / (1e-6 + grad_norm))  # No in-place modification here
+                new_l_g[i] = (grad)  # Append modified gradient to a new list
+
+            # del l_g
+            # gc.collect()
+# Convert list back to tensor, maintaining the same shape as l_g
+            l_g = new_l_g
+
+
+            g = torch.matmul(q, l_g[perm])
+            # del new_l_g
+            
+            # gc.collect()
+            if self.l2_reg and include_reg:
+                g += self.l2_reg * w.detach() / self.n
+            
+            val = 2*q[-1]-q[0]
+            return g,val
+
+    
+    '''
+    def get_batch_subgrad_dp(self, w, idx=None, include_reg=True):
+        if idx is not None:
+            X, y = self.X[idx], self.y[idx]
+            alphas = self.weight_function(len(X))
+        else:
+            X, y = self.X, self.y
+            alphas = self.alphas 
+        c  = 1
+        losses = self.loss(w, X, y)
+        sorted_losses,_ = torch.sort(losses)
+        accumulated_grad = torch.zeros_like(w)
+        for i in range(len(X)):
+            loss = sorted_losses[i]
+            grad = torch.autograd.grad(outputs=loss, inputs=w, retain_graph=True)[0]
+            grad_norm = torch.norm(grad)
+            if grad_norm > c:
+                grad = grad * (c /(1e-6+ grad_norm))
+            accumulated_grad += alphas[i] * grad
+        g = accumulated_grad
+        if self.l2_reg and include_reg:
+            g += self.l2_reg * w.detach() / self.n
+        return g
+    '''
     def get_indiv_loss(self, w, with_grad=False):
         if with_grad:
             return self.loss(w, self.X, self.y)

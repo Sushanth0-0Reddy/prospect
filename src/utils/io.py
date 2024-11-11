@@ -29,6 +29,7 @@ def load_results(dataset, model_cfg, optim_cfg, seed, out_path="results/"):
     path = get_path(
         [dataset, var_to_str(model_cfg), var_to_str(optim_cfg)], out_path=out_path
     )
+    print(path,out_path)
     f = os.path.join(path, f"seed_{seed}.p")
     return pickle.load(open(f, "rb"))
 

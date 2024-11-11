@@ -12,6 +12,8 @@ from src.optim.baselines import (
     SmoothedLSVRG,
     SaddleSAGA,
 )
+from src.optim.baselines_dp import StochasticSubgradientMethodDP
+
 from src.optim.prospect import Prospect, ProspectMoreau
 from src.optim.objectives import (
     Objective,
@@ -58,11 +60,14 @@ def train_model(optimizer, val_objective, n_epochs):
 
 
 def get_optimizer(optim_cfg, objective, seed, device="cpu"):
-    name, lr, epoch_len, shift_cost = (
+    name, lr, epoch_len, shift_cost,batch_size,noise = (
         optim_cfg["optimizer"],
         optim_cfg["lr"],
         optim_cfg["epoch_len"],
         optim_cfg["shift_cost"],
+        optim_cfg["batch_size"],
+        optim_cfg["noise"],
+        
     )
 
     lrd = 0.5 if "lrd" not in optim_cfg.keys() else optim_cfg["lrd"]
@@ -70,8 +75,15 @@ def get_optimizer(optim_cfg, objective, seed, device="cpu"):
 
     if name == "sgd":
         return StochasticSubgradientMethod(
-            objective, lr=lr, seed=seed, epoch_len=epoch_len
+            objective, lr=lr, seed=seed, epoch_len=epoch_len,batch_size=batch_size
         )
+        
+    elif name == "dp_sgd":
+        return StochasticSubgradientMethodDP(
+            objective, lr=lr, seed=seed, epoch_len=epoch_len,batch_size=batch_size,noise=noise
+        )
+        
+        
     elif name == "srda":
         return StochasticRegularizedDualAveraging(
             objective, lr=lr, seed=seed, epoch_len=epoch_len
@@ -84,6 +96,7 @@ def get_optimizer(optim_cfg, objective, seed, device="cpu"):
             smoothing=penalty,
             seed=seed,
             length_epoch=epoch_len,
+            batch_size=batch_size
         )
     elif name == "saddlesaga":
         # best lr for V1.
