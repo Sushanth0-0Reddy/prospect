@@ -1,10 +1,10 @@
 tasks="0-15"
-dataset="acsincome"
+dataset="diabetes"
 
 for objective in extremile superquantile esrm erm
 do
     python scripts/lbfgs.py --dataset $dataset --objective $objective
-    for optim in sgd
+    for optim in dp_sgd sgd
     do
         for epsilon in 2 4 8 16 1024
         do
@@ -14,4 +14,4 @@ do
             done
         done
     done
-done    
+done   
