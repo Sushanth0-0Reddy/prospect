@@ -53,6 +53,7 @@ def train_model(optimizer, val_objective, n_epochs):
             )
 
     result = {
+
         "weights": optimizer.weights,
         "metrics": pd.DataFrame(metrics),
     }
@@ -188,6 +189,7 @@ def compute_metrics(epoch, optimizer, val_objective, elapsed):
         ).item(),
         "val_loss": val_objective.get_batch_loss(optimizer.weights).item(),
         "elapsed": elapsed,
+        "iterations":optimizer.weights
     }
 
 def compute_training_curve(

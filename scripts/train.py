@@ -176,33 +176,15 @@ parallel = bool(args.parallel)
 optim_cfgs = dict_to_list(optim_cfg)
 
 
-# Extract the parameters for noise multiplier
-target_epsilon = args.epsilon
-target_delta = args.delta
-sampling = args.batch_size / args.dataset_length
-step = ((args.n_epochs) * (args.dataset_length)) / args.batch_size
-
-# Print the inputs
-print("Inputs to get_noise_multiplier:")
-print(f"target_epsilon: {target_epsilon}")
-print(f"target_delta: {target_delta}")
-print(f"sampling: {sampling}")
-print(f"step: {step}")
-
-# Now construct the optim_cfg dictionary
-optim_cfg = {
-    "optimizer": args.optimizer,
-    "lr": lrs,
-    "epoch_len": args.epoch_len,
-    "shift_cost": SHIFT_COST,
+config = {
+    "dataset": dataset,
+    "model_cfg": model_cfg,
+    "optim_cfg": optim_cfg,
+    "parallel": parallel,
+    "seeds": seeds,
+    "n_epochs": n_epochs,
     "batch_size": args.batch_size,
-    "dataset_length": args.dataset_length,
-    "noise": get_noise_multiplier(
-        target_epsilon=target_epsilon,
-        target_delta=target_delta,
-        sampling=sampling,
-        step=step
-    )
+    "epoch_len": args.epoch_len,
 }
 
 # Display.
