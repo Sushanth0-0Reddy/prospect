@@ -1,10 +1,10 @@
 tasks="0-15"
-for dataset in acsincome diabetes
+for dataset in acsincome 
 do  
-    for objective in extremile superquantile esrm erm
+    for objective in extremile 
     do
         python scripts/lbfgs.py --dataset $dataset --objective $objective
-        for optim in sgd
+        for optim in sgd dp_sgd
         do
             for epsilon in 2
             do
