@@ -1,12 +1,12 @@
 tasks="0-15"
 for dataset in amazon
 do  
-    for objective in extremile superquantile esrm erm
+    for objective in superquantile
     do
         python scripts/lbfgs.py --dataset $dataset --objective $objective
-        for optim in dp_sgd sgd
+        for optim in sgd
         do
-            for epsilon in 2 4 8 16 1024
+            for epsilon in 2 4 8 
             do
                 for batch_size in 32 64 128 256 512
                 do
