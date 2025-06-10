@@ -1,11 +1,9 @@
 import torch
 import numpy as np
 from src.optim.smoothing import get_smooth_weights, get_smooth_weights_sorted
-
-
-import torch
-import numpy as np
-from src.optim.smoothing import get_smooth_weights, get_smooth_weights_sorted
+from dp_accounting.rdp import rdp_privacy_accountant as rdp
+from dp_accounting import dp_event as event
+from scipy import optimize as opt
 
 
 class Optimizer:
@@ -57,11 +55,12 @@ class SubgradientMethod(Optimizer):
 
 
 class StochasticSubgradientMethodDP(Optimizer):
-    def __init__(self, objective, lr=0.01, batch_size=64, seed=25, epoch_len=None,noise=0):
+    def __init__(self, objective, lr=0.01, batch_size=64, seed=25, epoch_len=None,noise_multiplier=None, clip_threshold=1.0):
         super(StochasticSubgradientMethodDP, self).__init__()
         self.objective = objective
         self.lr = lr
         self.batch_size = batch_size
+        self.clip_threshold = clip_threshold
 
         if objective.n_class:
             self.weights = torch.zeros(
@@ -81,7 +80,7 @@ class StochasticSubgradientMethodDP(Optimizer):
             self.epoch_len = min(epoch_len, self.objective.n // self.batch_size)
         else:
             self.epoch_len = self.objective.n // self.batch_size
-        self.noise = noise
+        self.noise_multiplier = noise_multiplier  # Renamed from self.noise
 
     def start_epoch(self):
         self.order = torch.randperm(self.objective.n)
@@ -93,15 +92,13 @@ class StochasticSubgradientMethodDP(Optimizer):
             * self.batch_size : min(self.objective.n, (self.iter + 1) * self.batch_size)
         ]
         # self.weights.requires_grad = True
-        g,r_g,coeff = self.objective.get_batch_subgrad_dp(self.weights, idx=idx)
-
+        g,sensitivity  = self.objective.get_batch_subgrad_dp(self.weights, idx=idx)
+        
+        # Sensitivity is the max sensitivity of the batch it changes with batch size (last batch has max sensitivity)
         
         #Adding Noise
-        # print("self.noise:",self.noise)
-        # print("coeff",coeff)
-        g += (torch.normal(mean=0.0, std=self.noise*coeff, size=g.size()))
-        #Gradient of Regularizer
-        g += r_g 
+        g += (torch.normal(mean=0.0, std=self.noise_multiplier*sensitivity, size=g.size()))
+
         # self.weights.requires_grad = False
         self.weights = self.weights - self.lr * g
         # print(self.weights.shape)
@@ -257,3 +254,6 @@ class SmoothedLSVRG(Optimizer):
 
     def get_epoch_len(self):
         return self.length_epoch
+
+
+

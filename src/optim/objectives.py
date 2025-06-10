@@ -79,6 +79,7 @@ class Objective:
         shift_cost=1.0,
         penalty=None,
         autodiff=True,
+        clip_threshold=1,
     ):
         self.X = X
         self.y = y
@@ -99,6 +100,7 @@ class Objective:
         self.sigmas = weight_function(self.n)
         self.shift_cost = self.n * shift_cost if penalty == "l2" else shift_cost
         self.penalty = penalty
+        self.clip_threshold = clip_threshold
 
     def get_batch_loss(self, w, include_reg=True):
         with torch.no_grad():
@@ -125,16 +127,12 @@ class Objective:
 
     
     def get_batch_subgrad_dp(self, w, idx=None, include_reg=True):
-
-        g,coeff = self.get_batch_subgrad_oracle_dp(w, idx=idx, include_reg=False)
-        
-        # Calculate the regularization term if requested
-        if self.l2_reg and include_reg:
-            reg_term = self.l2_reg * w.detach() / self.n
+        if self.autodiff:   
+            g,sens = self.get_batch_subgrad_autodiff_dp(w, idx=idx, include_reg=include_reg,clip_threshold=self.clip_threshold)
         else:
-            reg_term = torch.zeros_like(w)
-        
-        return g, reg_term,coeff
+            g,sens = self.get_batch_subgrad_oracle_dp(w, idx=idx, include_reg=include_reg,clip_threshold=self.clip_threshold)
+        return g,sens
+
 
     
     @torch.no_grad()
@@ -158,12 +156,15 @@ class Objective:
         return g
 
     def get_batch_subgrad_autodiff(self, w, idx=None, include_reg=True):
+        # Handles the case where we are using a subset of the data
         if idx is not None:
             X, y = self.X[idx], self.y[idx]
             sigmas = self.weight_function(len(X))
         else:
             X, y = self.X, self.y
             sigmas = self.sigmas
+            
+        
         sorted_losses = torch.sort(self.loss(w, X, y), stable=True)[0]
         if self.l2_reg:
             with torch.no_grad():
@@ -178,50 +179,86 @@ class Objective:
             g += self.l2_reg * w.detach() / self.n
         return g
         
-    def get_batch_subgrad_oracle_dp(self, w, idx=None, include_reg=True):
-        with torch.no_grad():
+    @torch.no_grad()
+    def get_batch_subgrad_oracle_dp(self, w, idx=None, include_reg=True,clip_threshold=1):
+        if idx is not None:
+            X, y = self.X[idx], self.y[idx]
+            sigmas = self.weight_function(len(X))
+        else:
+            X, y = self.X, self.y
+            sigmas = self.sigmas
+        sorted_losses, perm = torch.sort(self.loss(w, X, y), stable=True)
         
-            if idx is not None:
-                X, y = self.X[idx], self.y[idx]
-                sigmas = self.weight_function(len(X))
-            else:
-                X, y = self.X, self.y
-                sigmas = self.sigmas
-            sorted_losses, perm = torch.sort(self.loss(w, X, y), stable=True)
-            # if self.penalty:
-            #     q = get_smooth_weights_sorted(
-            #         sorted_losses, sigmas, self.shift_cost, self.penalty
-            #     )
-            # else:
-            q = sigmas
+        # LSVRG Case to be added
+        # if self.penalty:
+        #     q = get_smooth_weights_sorted(
+        #         sorted_losses, sigmas, self.shift_cost, self.penalty
+        #     )
+        # else:
 
-            l_g = self.grad_batch(w, X, y)
-            new_l_g = torch.empty_like(l_g)
-            for i,grad in enumerate(l_g):
-                grad_norm = torch.norm(grad)
-                c = 1
-                if grad_norm > c:
-                    # print("Clipped")
-                    grad = grad * (c / (1e-6 + grad_norm))  # No in-place modification here
-                new_l_g[i] = (grad)  # Append modified gradient to a new list
-
-            # del l_g
-            # gc.collect()
-# Convert list back to tensor, maintaining the same shape as l_g
-            l_g = new_l_g
-
-
-            g = torch.matmul(q, l_g[perm])
-            # del new_l_g
-            
-            # gc.collect()
-            if self.l2_reg and include_reg:
-                g += self.l2_reg * w.detach() / self.n
-            
-            val = 2*q[-1]-q[0]
-            return g,val
-
+        l_g = self.grad_batch(w, X, y)
+        new_l_g = torch.empty_like(l_g)
+        for i,grad in enumerate(l_g):
+            grad_norm = torch.norm(grad)
+            c = clip_threshold
+            if grad_norm > c:
+                # print("Clipped")
+                grad = grad * (c / (1e-6 + grad_norm))  # No in-place modification here
+            new_l_g[i] = (grad)  # Append modified gradient to a new list
+        l_g = new_l_g
+        g = torch.matmul(sigmas, l_g[perm])
+        if self.l2_reg and include_reg:
+            g += self.l2_reg * w.detach() / self.n
     
+        sens = self.get_sensitivity(sigmas,clip_threshold)
+
+        #print(val)
+        return g,sens
+
+
+
+    def get_batch_subgrad_autodiff_dp(self, w, idx=None, include_reg=True, clip_threshold=1.0):
+        # Handle batch selection
+        if idx is not None:
+            X, y = self.X[idx], self.y[idx]
+            sigmas = self.weight_function(len(X))
+        else:
+            X, y = self.X, self.y
+            sigmas = self.sigmas
+        
+        # Compute losses using class method
+        individual_losses = self.loss(w, X, y)
+        
+        # Sort losses for weight assignment
+        sorted_losses, perm = torch.sort(individual_losses, stable=True)
+        
+        # Compute per-sample gradients using autodiff
+        individual_grads = []
+        for i in range(len(X)):
+            grad = torch.autograd.grad(individual_losses[i], w, retain_graph=True)[0]
+            individual_grads.append(grad)
+        
+        # Stack gradients and apply clipping
+        grads_tensor = torch.stack(individual_grads)
+        grad_norms = torch.norm(grads_tensor, dim=1)
+        scaling_factors = torch.minimum(torch.ones_like(grad_norms), 
+                                    clip_threshold / (grad_norms + 1e-6))
+        clipped_grads = grads_tensor * scaling_factors.unsqueeze(1)
+        
+        # Apply weights according to permutation
+        weighted_grad = torch.matmul(sigmas, clipped_grads[perm])
+        
+        # Add regularization if needed
+        if self.l2_reg and include_reg:
+            weighted_grad += self.l2_reg * w.detach() / self.n
+        
+        # Compute sensitivity (2*q[-1] - q[0] as in original implementation)
+        sens = self.get_sensitivity(sigmas)
+        
+        return weighted_grad, sens
+
+
+
     '''
     def get_batch_subgrad_dp(self, w, idx=None, include_reg=True):
         if idx is not None:
@@ -246,6 +283,11 @@ class Objective:
             g += self.l2_reg * w.detach() / self.n
         return g
     '''
+    
+    def get_sensitivity(self,q,clip_threshold):
+        return (2*q[-1]-q[0])*clip_threshold
+    
+    
     def get_indiv_loss(self, w, with_grad=False):
         if with_grad:
             return self.loss(w, self.X, self.y)

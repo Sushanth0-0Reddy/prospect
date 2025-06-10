@@ -61,14 +61,12 @@ def train_model(optimizer, val_objective, n_epochs):
 
 
 def get_optimizer(optim_cfg, objective, seed, device="cpu"):
-    name, lr, epoch_len, shift_cost,batch_size,noise = (
+    name, lr, epoch_len, shift_cost, batch_size = (
         optim_cfg["optimizer"],
         optim_cfg["lr"],
         optim_cfg["epoch_len"],
         optim_cfg["shift_cost"],
         optim_cfg["batch_size"],
-        optim_cfg["noise"],
-        
     )
 
     lrd = 0.5 if "lrd" not in optim_cfg.keys() else optim_cfg["lrd"]
@@ -80,8 +78,12 @@ def get_optimizer(optim_cfg, objective, seed, device="cpu"):
         )
         
     elif name == "dp_sgd":
+        if "noise_multiplier" not in optim_cfg:
+            raise ValueError("'noise_multiplier' not found in optim_cfg for dp_sgd")
+        noise_multiplier = optim_cfg["noise_multiplier"]
+        clip_threshold = optim_cfg.get("clip_threshold", 1.0)
         return StochasticSubgradientMethodDP(
-            objective, lr=lr, seed=seed, epoch_len=epoch_len,batch_size=batch_size,noise=noise
+            objective, lr=lr, seed=seed, epoch_len=epoch_len,batch_size=batch_size,noise_multiplier=noise_multiplier, clip_threshold=clip_threshold
         )
         
         
@@ -136,7 +138,7 @@ def get_optimizer(optim_cfg, objective, seed, device="cpu"):
         raise ValueError("Unreocgnized optimizer!")
 
 
-def get_objective(model_cfg, X, y, dataset=None, autodiff=True):
+def get_objective(model_cfg, X, y, dataset=None, autodiff=True, current_clip_threshold=None):
     name, l2_reg, loss, n_class, shift_cost = (
         model_cfg["objective"],
         model_cfg["l2_reg"],
@@ -165,6 +167,9 @@ def get_objective(model_cfg, X, y, dataset=None, autodiff=True):
     elif name == "esrm_hard":
         weight_function = lambda n: get_esrm_weights(n, 2.0)
 
+    # Use the provided current_clip_threshold if available, otherwise Objective's default (1.0) will apply.
+    # The Objective class itself has a default of 1.0 for its clip_threshold parameter.
+    # So, if current_clip_threshold is None (e.g. for non-DP objectives), it will correctly default.
     return Objective(
         X,
         y,
@@ -177,6 +182,7 @@ def get_objective(model_cfg, X, y, dataset=None, autodiff=True):
         shift_cost=shift_cost,
         penalty="l2",
         autodiff=autodiff,
+        clip_threshold=current_clip_threshold if current_clip_threshold is not None else 1.0 # Explicitly pass, defaulting here for clarity
     )
 
 
@@ -219,8 +225,12 @@ def compute_training_curve(
         print("*********************")
         exit_code = SUCCESS_CODE
     else:
-        train_objective = get_objective(model_cfg, X_train, y_train, dataset=dataset)
-        val_objective = get_objective(model_cfg, X_val, y_val, dataset=dataset)
+        # Extract clip_threshold for the current run from optim_cfg
+        # This will be None if not present (e.g., for SGD optimizer)
+        run_clip_threshold = optim_cfg.get("clip_threshold") 
+
+        train_objective = get_objective(model_cfg, X_train, y_train, dataset=dataset,autodiff=False, current_clip_threshold=run_clip_threshold)
+        val_objective = get_objective(model_cfg, X_val, y_val, dataset=dataset) # Val objective doesn't need clipping info
         optimizer = get_optimizer(optim_cfg, train_objective, seed)
         try:
             result = train_model(optimizer, val_objective, n_epochs)
@@ -228,7 +238,7 @@ def compute_training_curve(
         except OptimizationError as e:
             result = FAIL_CODE
             exit_code = FAIL_CODE
-        save_results(result, dataset, model_cfg, optim_cfg, seed, out_path=out_path)
+        save_results(result, model_cfg, optim_cfg, seed, out_path=out_path)
         return exit_code
 
 
@@ -251,7 +261,7 @@ def compute_average_train_loss(
 ):
     total = 0.0
     for seed in seeds:
-        results = load_results(dataset, model_cfg, optim_cfg, seed, out_path=out_path)
+        results = load_results(model_cfg, optim_cfg, seed, out_path=out_path)
         if isinstance(results, int) and results == FAIL_CODE:
             return [torch.inf]
         total += torch.tensor(results["metrics"]["train_loss"])
@@ -280,10 +290,10 @@ def find_best_optim_cfg(dataset, model_cfg, optim_cfgs, seeds, out_path="results
         }
     )
 
-    path = get_path([dataset, var_to_str(model_cfg), optim_cfgs[0]["optimizer"]], out_path=out_path)
+    path = get_path([var_to_str(model_cfg), optim_cfgs[0]["optimizer"]], out_path=out_path)
 
     for seed in seeds:
-        results = load_results(dataset, model_cfg, best_cfg, seed, out_path=out_path)
+        results = load_results(model_cfg, best_cfg, seed, out_path=out_path)
         df[f"seed_{seed}_train"] = results["metrics"]["train_loss"]
         df[f"seed_{seed}_val"] = results["metrics"]["val_loss"]
         if "nb_checkpoints" in results.keys():

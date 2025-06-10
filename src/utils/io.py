@@ -8,26 +8,30 @@ def get_path(levels, out_path="results/"):
     for item in levels:
         path = os.path.join(path, item + "/")
         if not os.path.exists(path):
-            os.mkdir(path)
+            os.makedirs(path, exist_ok=True)
     return path
 
 
-def save_results(result, dataset, model_cfg, optim_cfg, seed, out_path="results/"):
-    path = get_path([dataset, var_to_str(model_cfg), var_to_str(optim_cfg)], out_path=out_path)
+def save_results(result, model_cfg, optim_cfg, seed, out_path="results/"):
+    path = get_path([var_to_str(model_cfg), var_to_str(optim_cfg)], out_path=out_path)
     f = os.path.join(path, f"seed_{seed}.p")
     print(f"saving results to: '{f}'")
     with open(f, "wb") as fpath:
         pickle.dump(result, fpath)
 
 
-def load_results(dataset, model_cfg, optim_cfg, seed, out_path="results/"):
+def load_results(model_cfg, optim_cfg, seed, out_path="results/"):
     # TODO: Make more eld[[degant.
-    if "iwildcam" in dataset:
-        model_cfg["n_class"] = 60
-    if "amazon" in dataset:
-        model_cfg["n_class"] = 5
+    # The n_class adjustment might need to be re-evaluated or handled upstream if dataset isn't passed.
+    # For now, assuming model_cfg might contain dataset info or this is handled before calling.
+    # if "iwildcam" in dataset: # This can no longer be done directly here
+    #     model_cfg["n_class"] = 60
+    # if "amazon" in dataset: # This can no longer be done directly here
+    #     model_cfg["n_class"] = 5
+    
+    # out_path already contains the dataset-specific part from train.py
     path = get_path(
-        [dataset, var_to_str(model_cfg), var_to_str(optim_cfg)], out_path=out_path
+        [var_to_str(model_cfg), var_to_str(optim_cfg)], out_path=out_path
     )
     #print(path,out_path)
     f = os.path.join(path, f"seed_{seed}.p")

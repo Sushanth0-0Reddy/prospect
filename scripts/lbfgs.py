@@ -55,6 +55,12 @@ parser.add_argument(
         "esrm_hard",
     ],
 )
+parser.add_argument(
+    "--output_base_dir", 
+    type=str, 
+    default="results_lbfgs", 
+    help="Base directory for L-BFGS output results."
+)
 args = parser.parse_args()
 
 dataset = args.dataset
@@ -106,7 +112,7 @@ else:
     init = np.zeros((objective.d,), dtype=np.float64)
 output = minimize(fun, init, method="L-BFGS-B", jac=jac)
 if output.success:
-    path = get_path([dataset, var_to_str(model_cfg)])
+    path = get_path([dataset, var_to_str(model_cfg)], args.output_base_dir)
     f = os.path.join(path, "lbfgs_min_loss.p")
     pickle.dump(output.fun, open(f, "wb"))
 else:

@@ -98,6 +98,58 @@ class StochasticSubgradientMethod(Optimizer):
     def get_epoch_len(self):
         return self.epoch_len
 
+class DRO(Optimizer):
+    def __init__(self, objective, lr=0.01, batch_size=64, seed=25, epoch_len=None, rho=0.1):
+        super(DRO, self).__init__()
+        self.objective = objective
+        self.lr = lr
+        self.batch_size = batch_size
+        self.rho = rho  # Robustness parameter
+
+        if objective.n_class:
+            self.weights = torch.zeros(
+                objective.n_class * self.objective.d,
+                requires_grad=True,
+                dtype=torch.float64,
+            )
+        else:
+            self.weights = torch.zeros(
+                self.objective.d, requires_grad=True, dtype=torch.float64
+            )
+        
+        self.order = None
+        self.iter = None
+        torch.manual_seed(seed)
+
+        if epoch_len:
+            self.epoch_len = min(epoch_len, self.objective.n // self.batch_size)
+        else:
+            self.epoch_len = self.objective.n // self.batch_size
+
+    def start_epoch(self):
+        self.order = torch.randperm(self.objective.n)
+        self.iter = 0
+
+    def step(self):
+        idx = self.order[
+            self.iter * self.batch_size : min(self.objective.n, (self.iter + 1) * self.batch_size)
+        ]
+        
+        # Compute the subgradient of the worst-case loss
+        g = self.objective.get_batch_subgrad(self.weights, idx=idx, include_reg=False)
+        
+        # Apply the robustness constraint
+        g_robust = g + self.rho * self.objective.get_batch_robustness(self.weights, idx=idx)
+
+        # Update weights
+        self.weights = self.weights - self.lr * g_robust
+        self.iter += 1
+
+    def end_epoch(self):
+        pass
+
+    def get_epoch_len(self):
+        return self.epoch_len
 
 class StochasticRegularizedDualAveraging(Optimizer):
     def __init__(
@@ -159,6 +211,8 @@ class StochasticRegularizedDualAveraging(Optimizer):
 
     def get_epoch_len(self):
         return self.epoch_len
+
+
 
 
 class SmoothedLSVRG(Optimizer):
@@ -242,6 +296,9 @@ class SmoothedLSVRG(Optimizer):
 
     def get_epoch_len(self):
         return self.length_epoch
+
+
+
 
 
 class SaddleSAGA(Optimizer):
