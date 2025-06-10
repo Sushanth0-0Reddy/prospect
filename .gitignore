@@ -1,4 +1,5 @@
 # Data files
+hp_tuning_experiments/
 scripts/debug.py
 results/yacht/*/lr_*
 results/energy/*/lr_*
